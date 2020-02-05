@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/src-d/identity-matching/reporter"
 	"golang.org/x/oauth2"
 	"gopkg.in/google/go-github.v15/github"
 )
@@ -67,12 +68,17 @@ func (m GitHubMatcher) MatchByEmail(ctx context.Context, email string) (user str
 				var result *github.UsersSearchResult
 				var response *github.Response
 				result, response, err = m.client.Search.Users(ctx, query, searchOpts)
+				reporter.Increment("total GitHub API calls")
+				reporter.Increment("GitHub API search calls")
 				status := checkResponse(response, err, &numFailures)
 				if status == responseRetry {
+					reporter.Increment("GitHub API calls returning retry")
 					continue
 				} else if status == responseFail {
+					reporter.Increment("GitHub API calls failed")
 					return
 				}
+				reporter.Increment("GitHub API calls succeeded")
 				if len(result.Users) == 0 {
 					if strings.Contains(query, "@") {
 						// Hacking time! user+domain may work instead of user@domain
@@ -125,12 +131,17 @@ func (m GitHubMatcher) MatchByCommit(
 				var c *github.RepositoryCommit
 				var response *github.Response
 				c, response, err = m.client.Repositories.GetCommit(ctx, repoUser, repoName, commit)
+				reporter.Increment("total GitHub API calls")
+				reporter.Increment("GitHub API query calls")
 				status := checkResponse(response, err, &numFailures)
 				if status == responseRetry {
+					reporter.Increment("GitHub API calls returning retry")
 					continue
 				} else if status == responseFail {
+					reporter.Increment("GitHub API calls failed")
 					return
 				}
+				reporter.Increment("GitHub API calls succeeded")
 				if c.Author != nil && c.Author.Login != nil && c.Commit.Author != nil &&
 					c.Commit.Author.Email != nil && *c.Commit.Author.Email == email {
 					user = *c.Author.Login
