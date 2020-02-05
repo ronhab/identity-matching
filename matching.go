@@ -53,7 +53,8 @@ func addEdgesWithMatcher(people People, peopleGraph *simple.UndirectedGraph,
 			if matcher.SupportsMatchingByCommit() && person.SampleCommit != nil {
 				username, err = matcher.MatchByCommit(
 					ctx, email, person.SampleCommit.Repo, person.SampleCommit.Hash)
-			} else {
+			}
+			if username == "" {
 				username, err = matcher.MatchByEmail(ctx, email)
 			}
 			if err != nil {
