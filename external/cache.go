@@ -17,6 +17,7 @@ import (
 type CachedUser struct {
 	User    string
 	Matched bool // false if there is no match from the external API
+	ExternalMatcherMetadata string // json encoded metadata from the external matcher
 }
 
 // CacheKey is composed of user email and method of searching for it
@@ -49,6 +50,7 @@ const csvTrue string = "1"
 const csvFalse string = "0"
 const byCommit string = "byCommit"
 const byEmail string = "byEmail"
+const emptyJson string = "{}"
 
 // PathExists reports whether a file or directory exists.
 func PathExists(path string) bool {
@@ -107,10 +109,10 @@ func (m *CachedMatcher) MatchByEmail(ctx context.Context, email string) (user st
 	}
 	user, err = m.matcher.MatchByEmail(ctx, email)
 	if err == nil {
-		m.cache.AddUserToCache(CacheKey{email,byEmail}, user, true)
+		m.cache.AddUserToCache(CacheKey{email,byEmail}, user, true, emptyJson)
 	}
 	if err == ErrNoMatches {
-		m.cache.AddUserToCache(CacheKey{email,byEmail}, user, false)
+		m.cache.AddUserToCache(CacheKey{email,byEmail}, user, false, emptyJson)
 	}
 	m.cache.lock.Lock()
 	if len(m.cache.cache)%saveFreq == 0 {
@@ -136,10 +138,10 @@ func (m *CachedMatcher) MatchByCommit(
 	}
 	user, err = m.matcher.MatchByCommit(ctx, email, repo, commit)
 	if err == nil {
-		m.cache.AddUserToCache(CacheKey{email,byCommit}, user, true)
+		m.cache.AddUserToCache(CacheKey{email,byCommit}, user, true, emptyJson)
 	}
 	if err == ErrNoMatches {
-		m.cache.AddUserToCache(CacheKey{email,byCommit}, user, false)
+		m.cache.AddUserToCache(CacheKey{email,byCommit}, user, false, emptyJson)
 	}
 	m.cache.lock.Lock()
 	if len(m.cache.cache)%saveFreq == 0 {
@@ -150,9 +152,9 @@ func (m *CachedMatcher) MatchByCommit(
 }
 
 // Add to cache safely
-func (m *safeUserCache) AddUserToCache(key CacheKey, user string, matched bool) {
+func (m *safeUserCache) AddUserToCache(key CacheKey, user string, matched bool, externalMatcherMetadata string) {
 	m.lock.Lock()
-	m.cache[key] = CachedUser{user, matched}
+	m.cache[key] = CachedUser{user, matched, externalMatcherMetadata}
 	m.lock.Unlock()
 }
 
@@ -194,8 +196,8 @@ func (m *safeUserCache) LoadFromDisk() error {
 			return err
 		}
 		if len(header) == 0 {
-			if len(record) != 4 {
-				return fmt.Errorf("invalid CSV file: should have 4 columns")
+			if len(record) != 5 {
+				return fmt.Errorf("invalid CSV file: should have 5 columns")
 			}
 			for index, name := range record {
 				header[name] = index
@@ -205,7 +207,7 @@ func (m *safeUserCache) LoadFromDisk() error {
 				return fmt.Errorf("invalid CSV record: %s", strings.Join(record, ","))
 			}
 			m.cache[CacheKey{record[header["email"]],record[header["method"]]}] = CachedUser{
-				record[header["user"]], record[header["match"]] == csvTrue}
+				record[header["user"]], record[header["match"]] == csvTrue, record[header["metadata"]]}
 		}
 	}
 	if err == io.EOF {
@@ -243,7 +245,7 @@ func (m safeUserCache) DumpOnDisk() error {
 		}
 	}()
 	if len(existing.cache) == 0 {
-		err = writer.Write([]string{"email", "user", "match", "method"})
+		err = writer.Write([]string{"email", "user", "match", "method", "metadata"})
 		if err != nil {
 			return err
 		}
@@ -263,7 +265,7 @@ func (m safeUserCache) DumpOnDisk() error {
 		if username.Matched {
 			match = csvTrue
 		}
-		err = writer.Write([]string{key.Email, username.User, match, key.Method})
+		err = writer.Write([]string{key.Email, username.User, match, key.Method, username.ExternalMatcherMetadata})
 		if err != nil {
 			return err
 		}
